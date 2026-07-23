@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mesa Dulce · Gestión de Pedidos</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<style>
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #f0abbf; border-radius: 8px; }
+  @keyframes pop { 0% { transform: scale(.96); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  .pop-in { animation: pop .15s ease-out; }
+</style>
+</head>
+<body class="bg-gradient-to-br from-rose-50 via-white to-amber-50 min-h-screen text-slate-800">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+/* ---------- Constantes ---------- */
+const ESTADOS = ["Pendiente", "En camino", "Entregado"];
+const METODOS_PAGO = ["Efectivo", "Transferencia", "Tarjeta débito/crédito", "Mercado Pago"];
+
+const ESTADO_STYLES = {
+  "Pendiente": { border: "border-amber-400", badge: "bg-amber-100 text-amber-800", dot: "bg-amber-400" },
+  "En camino": { border: "border-sky-400", badge: "bg-sky-100 text-sky-800", dot: "bg-sky-400" },
+  "Entregado": { border: "border-emerald-400", badge: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-400" },
+};
+
+const STORAGE_KEYS = { pedidos: "mesadulce_pedidos_v1", clientes: "mesadulce_clientes_v1" };
+
+/* ---------- Utilidades ---------- */
+function loadFromStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function uid(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function pad(n) { return String(n).padStart(2, "0"); }
+
+function toLocalInputValue(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function defaultHorario() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + 60);
+  d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15);
+  return toLocalInputValue(d);
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function formatHorario(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d)) return "—";
+  return d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatCreado(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function nextBirthdayInfo(cumpleanos) {
+  if (!cumpleanos) return null;
+  const parts = cumpleanos.split("-").map(Number);
+  if (parts.length < 3) return null;
+  const [y, m, d] = parts;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  let next = new Date(hoy.getFullYear(), m - 1, d);
+  if (next < hoy) next = new Date(hoy.getFullYear() + 1, m - 1, d);
+  const diffDays = Math.round((next - hoy) / 86400000);
+  let edad = hoy.getFullYear() - y;
+  const cumpleEsteAno = new Date(hoy.getFullYear(), m - 1, d);
+  if (hoy < cumpleEsteAno) edad -= 1;
+  return { diffDays, edadQueCumple: edad + 1, mesDia: next.toLocaleDateString("es-AR", { day: "2-digit", month: "long" }) };
+}
+
+function birthdayBadge(diffDays) {
+  if (diffDays === 0) return { label: "🎉 ¡Hoy!", className: "bg-pink-500 text-white" };
+  if (diffDays <= 7) return { label: `En ${diffDays} día${diffDays === 1 ? "" : "s"}`, className: "bg-amber-100 text-amber-800" };
+  if (diffDays <= 30) return { label: `En ${diffDays} días`, className: "bg-sky-50 text-sky-700" };
+  return { label: `En ${diffDays} días`, className: "bg-gray-100 text-gray-500" };
+}
+
+/* ---------- Componentes chicos ---------- */
+function StatCard({ label, value, accent }) {
+  return (
+    <div className={`flex-1 min-w-[120px] rounded-2xl bg-white shadow-sm border border-slate-100 p-4`}>
+      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">{label}</p>
+      <p className={`text-3xl font-bold mt-1 ${accent}`}>{value}</p>
+    </div>
+  );
+}
+
+function EstadoBadge({ estado }) {
+  const s = ESTADO_STYLES[estado] || ESTADO_STYLES["Pendiente"];
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${s.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`}></span>
+      {estado}
+    </span>
+  );
+}
+
+/* ---------- Formulario de nuevo pedido ---------- */
+function PedidoForm({ onAdd, clientes }) {
+  const [cliente, setCliente] = useState("");
+  const [detalle, setDetalle] = useState("");
+  const [horario, setHorario] = useState(defaultHorario());
+  const [metodoPago, setMetodoPago] = useState(METODOS_PAGO[0]);
+  const [estado, setEstado] = useState(ESTADOS[0]);
+  const [error, setError] = useState("");
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!cliente.trim() || !detalle.trim() || !horario) {
+      setError("Completá cliente, detalle y horario de entrega.");
+      return;
+    }
+    onAdd({
+      id: uid("p"),
+      cliente: cliente.trim(),
+      detalle: detalle.trim(),
+      horario,
+      metodoPago,
+      estado,
+      creadoEn: new Date().toISOString(),
+    });
+    setCliente("");
+    setDetalle("");
+    setHorario(defaultHorario());
+    setMetodoPago(METODOS_PAGO[0]);
+    setEstado(ESTADOS[0]);
+    setError("");
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
+      <h2 className="text-lg font-bold text-rose-500 flex items-center gap-2">🧁 Nuevo pedido</h2>
+
+      <div>
+        <label className="text-xs font-semibold text-slate-500">Nombre del cliente</label>
+        <input
+          list="clientes-datalist"
+          value={cliente}
+          onChange={(e) => setCliente(e.target.value)}
+          placeholder="Ej: Lucía García"
+          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+        />
+        <datalist id="clientes-datalist">
+          {clientes.map((c) => <option key={c.id} value={c.nombre} />)}
+        </datalist>
+      </div>
+
+      <div>
+        <label className="text-xs font-semibold text-slate-500">Detalle del pedido</label>
+        <textarea
+          value={detalle}
+          onChange={(e) => setDetalle(e.target.value)}
+          placeholder="Ej: 2 docenas de alfajores de maicena, 1 torta de chocolate"
+          rows={3}
+          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300 resize-none"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">Horario de entrega</label>
+          <input
+            type="datetime-local"
+            value={horario}
+            onChange={(e) => setHorario(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">Método de pago</label>
+          <select
+            value={metodoPago}
+            onChange={(e) => setMetodoPago(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+          >
+            {METODOS_PAGO.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs font-semibold text-slate-500">Estado inicial</label>
+        <select
+          value={estado}
+          onChange={(e) => setEstado(e.target.value)}
+          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+        >
+          {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+
+      <button type="submit" className="w-full bg-rose-500 hover:bg-rose-600 transition text-white font-semibold py-2.5 rounded-xl shadow-sm">
+        + Agregar pedido
+      </button>
+    </form>
+  );
+}
+
+/* ---------- Tarjeta de pedido ---------- */
+function PedidoCard({ pedido, onChangeEstado, onDelete }) {
+  const s = ESTADO_STYLES[pedido.estado] || ESTADO_STYLES["Pendiente"];
+  return (
+    <div className={`pop-in bg-white rounded-2xl shadow-sm border-l-4 ${s.border} border-y border-r border-slate-100 p-4 space-y-3`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-bold text-slate-800">{pedido.cliente}</p>
+          <p className="text-xs text-slate-400">🕒 {formatHorario(pedido.horario)}</p>
+        </div>
+        <button
+          onClick={() => onDelete(pedido.id)}
+          title="Eliminar pedido"
+          className="text-slate-300 hover:text-red-500 transition text-sm"
+        >✕</button>
+      </div>
+
+      <p className="text-sm text-slate-600 whitespace-pre-wrap">{pedido.detalle}</p>
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">💳 {pedido.metodoPago}</span>
+        <EstadoBadge estado={pedido.estado} />
+      </div>
+
+      <div className="flex gap-1.5 pt-1">
+        {ESTADOS.map((estado) => (
+          <button
+            key={estado}
+            onClick={() => onChangeEstado(pedido.id, estado)}
+            className={`flex-1 text-xs font-semibold py-1.5 rounded-lg transition ${
+              pedido.estado === estado
+                ? `${ESTADO_STYLES[estado].badge} ring-1 ring-inset ring-black/5`
+                : "bg-slate-50 text-slate-400 hover:bg-slate-100"
+            }`}
+          >
+            {estado}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Tablero de pedidos (Kanban) ---------- */
+function PedidosBoard({ pedidos, onChangeEstado, onDelete, soloHoy, setSoloHoy }) {
+  const filtrados = useMemo(() => {
+    if (!soloHoy) return pedidos;
+    return pedidos.filter((p) => (p.horario || "").slice(0, 10) === todayStr());
+  }, [pedidos, soloHoy]);
+
+  const columnas = ESTADOS.map((estado) => ({
+    estado,
+    items: filtrados
+      .filter((p) => p.estado === estado)
+      .sort((a, b) => (a.horario || "").localeCompare(b.horario || "")),
+  }));
+
+  return (
+    <div className="space-y-3">
+      <label className="inline-flex items-center gap-2 text-sm text-slate-500 font-medium cursor-pointer select-none">
+        <input type="checkbox" checked={soloHoy} onChange={(e) => setSoloHoy(e.target.checked)} className="rounded accent-rose-500" />
+        Ver solo entregas de hoy
+      </label>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {columnas.map((col) => (
+          <div key={col.estado} className="bg-rose-50/60 rounded-2xl p-3 space-y-3 min-h-[160px]">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="font-bold text-sm text-slate-600">{col.estado}</h3>
+              <span className="text-xs font-bold bg-white text-slate-500 rounded-full px-2 py-0.5 shadow-sm">{col.items.length}</span>
+            </div>
+            {col.items.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-6">Sin pedidos aquí 🎈</p>
+            )}
+            {col.items.map((p) => (
+              <PedidoCard key={p.id} pedido={p} onChangeEstado={onChangeEstado} onDelete={onDelete} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Historial ---------- */
+function HistorialTable({ pedidos, onDelete }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("Todos");
+
+  const filtrados = useMemo(() => {
+    return pedidos
+      .filter((p) => filtroEstado === "Todos" || p.estado === filtroEstado)
+      .filter((p) => p.cliente.toLowerCase().includes(busqueda.toLowerCase()))
+      .sort((a, b) => new Date(b.creadoEn) - new Date(a.creadoEn));
+  }, [pedidos, busqueda, filtroEstado]);
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+        <h2 className="text-lg font-bold text-rose-500">📜 Historial de pedidos</h2>
+        <div className="flex gap-2">
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar cliente..."
+            className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+          />
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+          >
+            <option>Todos</option>
+            {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase text-slate-400 border-b border-slate-100">
+              <th className="py-2 pr-3">Cliente</th>
+              <th className="py-2 pr-3">Detalle</th>
+              <th className="py-2 pr-3">Entrega</th>
+              <th className="py-2 pr-3">Pago</th>
+              <th className="py-2 pr-3">Estado</th>
+              <th className="py-2 pr-3">Creado</th>
+              <th className="py-2 pr-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.map((p) => (
+              <tr key={p.id} className="border-b border-slate-50 hover:bg-rose-50/40 align-top">
+                <td className="py-2.5 pr-3 font-semibold text-slate-700">{p.cliente}</td>
+                <td className="py-2.5 pr-3 text-slate-500 max-w-xs truncate" title={p.detalle}>{p.detalle}</td>
+                <td className="py-2.5 pr-3 text-slate-500 whitespace-nowrap">{formatHorario(p.horario)}</td>
+                <td className="py-2.5 pr-3 text-slate-500 whitespace-nowrap">{p.metodoPago}</td>
+                <td className="py-2.5 pr-3"><EstadoBadge estado={p.estado} /></td>
+                <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap">{formatCreado(p.creadoEn)}</td>
+                <td className="py-2.5 pr-3">
+                  <button onClick={() => onDelete(p.id)} className="text-slate-300 hover:text-red-500 text-xs">Eliminar</button>
+                </td>
+              </tr>
+            ))}
+            {filtrados.length === 0 && (
+              <tr><td colSpan="7" className="text-center text-slate-400 py-8">No hay pedidos que coincidan con la búsqueda.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Clientes / Cumpleaños ---------- */
+function ClienteForm({ onAdd }) {
+  const [nombre, setNombre] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [cumpleanos, setCumpleanos] = useState("");
+  const [notas, setNotas] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!nombre.trim() || !cumpleanos) {
+      setError("Completá al menos el nombre y la fecha de cumpleaños.");
+      return;
+    }
+    onAdd({ id: uid("c"), nombre: nombre.trim(), telefono: telefono.trim(), cumpleanos, notas: notas.trim() });
+    setNombre(""); setTelefono(""); setCumpleanos(""); setNotas(""); setError("");
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
+      <h2 className="text-lg font-bold text-rose-500 flex items-center gap-2">🎂 Nuevo cliente</h2>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">Nombre</label>
+        <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Martina Pérez"
+          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">Teléfono (opcional)</label>
+          <input value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="11 2345 6789"
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">Fecha de nacimiento</label>
+          <input type="date" value={cumpleanos} onChange={(e) => setCumpleanos(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">Notas (opcional)</label>
+        <input value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Ej: alérgica a frutos secos"
+          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" />
+      </div>
+      {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+      <button type="submit" className="w-full bg-rose-500 hover:bg-rose-600 transition text-white font-semibold py-2.5 rounded-xl shadow-sm">
+        + Guardar cliente
+      </button>
+    </form>
+  );
+}
+
+function ClienteCard({ cliente, onDelete }) {
+  const info = nextBirthdayInfo(cliente.cumpleanos);
+  const badge = info ? birthdayBadge(info.diffDays) : null;
+  return (
+    <div className="pop-in bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex items-center justify-between gap-3">
+      <div>
+        <p className="font-bold text-slate-800">{cliente.nombre}</p>
+        <p className="text-xs text-slate-400">
+          {info ? `🎂 ${info.mesDia} · cumple ${info.edadQueCumple}` : "Sin fecha"}
+          {cliente.telefono ? ` · 📞 ${cliente.telefono}` : ""}
+        </p>
+        {cliente.notas && <p className="text-xs text-slate-400 italic mt-0.5">{cliente.notas}</p>}
+      </div>
+      <div className="flex items-center gap-2">
+        {badge && <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${badge.className}`}>{badge.label}</span>}
+        <button onClick={() => onDelete(cliente.id)} title="Eliminar cliente" className="text-slate-300 hover:text-red-500 text-sm">✕</button>
+      </div>
+    </div>
+  );
+}
+
+function ClientesSection({ clientes, onAdd, onDelete }) {
+  const [busqueda, setBusqueda] = useState("");
+
+  const ordenados = useMemo(() => {
+    return clientes
+      .filter((c) => c.nombre.toLowerCase().includes(busqueda.toLowerCase()))
+      .map((c) => ({ c, info: nextBirthdayInfo(c.cumpleanos) }))
+      .sort((a, b) => (a.info?.diffDays ?? 999) - (b.info?.diffDays ?? 999))
+      .map((x) => x.c);
+  }, [clientes, busqueda]);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="lg:col-span-1">
+        <ClienteForm onAdd={onAdd} />
+      </div>
+      <div className="lg:col-span-2 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-bold text-rose-500">📇 Base de clientes</h2>
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar cliente..."
+            className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+          />
+        </div>
+        <div className="space-y-2">
+          {ordenados.map((c) => <ClienteCard key={c.id} cliente={c} onDelete={onDelete} />)}
+          {ordenados.length === 0 && (
+            <p className="text-sm text-slate-400 text-center py-10 bg-white rounded-2xl border border-slate-100">
+              Todavía no cargaste clientes. ¡Sumá el primero! 🎉
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- App principal ---------- */
+function App() {
+  const [pedidos, setPedidos] = useState(() => loadFromStorage(STORAGE_KEYS.pedidos, []));
+  const [clientes, setClientes] = useState(() => loadFromStorage(STORAGE_KEYS.clientes, []));
+  const [tab, setTab] = useState("pedidos");
+  const [soloHoy, setSoloHoy] = useState(true);
+
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.pedidos, JSON.stringify(pedidos)); }, [pedidos]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.clientes, JSON.stringify(clientes)); }, [clientes]);
+
+  function addPedido(pedido) { setPedidos((prev) => [pedido, ...prev]); }
+  function changeEstado(id, estado) { setPedidos((prev) => prev.map((p) => (p.id === id ? { ...p, estado } : p))); }
+  function deletePedido(id) {
+    if (window.confirm("¿Eliminar este pedido?")) setPedidos((prev) => prev.filter((p) => p.id !== id));
+  }
+  function addCliente(cliente) { setClientes((prev) => [...prev, cliente]); }
+  function deleteCliente(id) {
+    if (window.confirm("¿Eliminar este cliente?")) setClientes((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  const pedidosHoy = useMemo(() => pedidos.filter((p) => (p.horario || "").slice(0, 10) === todayStr()), [pedidos]);
+  const stats = useMemo(() => ({
+    pendientes: pedidosHoy.filter((p) => p.estado === "Pendiente").length,
+    enCamino: pedidosHoy.filter((p) => p.estado === "En camino").length,
+    entregados: pedidosHoy.filter((p) => p.estado === "Entregado").length,
+    total: pedidosHoy.length,
+  }), [pedidosHoy]);
+
+  const cumpleHoy = useMemo(() => clientes.filter((c) => nextBirthdayInfo(c.cumpleanos)?.diffDays === 0), [clientes]);
+
+  const TABS = [
+    { id: "pedidos", label: "🧾 Pedidos" },
+    { id: "historial", label: "📜 Historial" },
+    { id: "clientes", label: "🎂 Clientes / Cumpleaños" },
+  ];
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <header className="space-y-1">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800">🍰 Mesa Dulce · Gestión de Pedidos</h1>
+        <p className="text-sm text-slate-400">
+          {new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+        </p>
+      </header>
+
+      {cumpleHoy.length > 0 && (
+        <div className="bg-pink-500 text-white rounded-2xl px-4 py-3 text-sm font-semibold shadow-sm">
+          🎉 ¡Hoy es el cumpleaños de {cumpleHoy.map((c) => c.nombre).join(", ")}!
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-3">
+        <StatCard label="Pendientes" value={stats.pendientes} accent="text-amber-500" />
+        <StatCard label="En camino" value={stats.enCamino} accent="text-sky-500" />
+        <StatCard label="Entregados hoy" value={stats.entregados} accent="text-emerald-500" />
+        <StatCard label="Total hoy" value={stats.total} accent="text-rose-500" />
+      </div>
+
+      <nav className="flex gap-2 border-b border-slate-200">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm font-semibold rounded-t-xl transition ${
+              tab === t.id ? "bg-white text-rose-500 border border-b-white border-slate-200 -mb-px" : "text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "pedidos" && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="lg:col-span-1">
+            <PedidoForm onAdd={addPedido} clientes={clientes} />
+          </div>
+          <div className="lg:col-span-2">
+            <PedidosBoard pedidos={pedidos} onChangeEstado={changeEstado} onDelete={deletePedido} soloHoy={soloHoy} setSoloHoy={setSoloHoy} />
+          </div>
+        </div>
+      )}
+
+      {tab === "historial" && <HistorialTable pedidos={pedidos} onDelete={deletePedido} />}
+
+      {tab === "clientes" && <ClientesSection clientes={clientes} onAdd={addCliente} onDelete={deleteCliente} />}
+
+      <footer className="text-center text-xs text-slate-300 pt-6">
+        Los datos se guardan en este navegador (localStorage). Mesa Dulce Repostería 🧁
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
