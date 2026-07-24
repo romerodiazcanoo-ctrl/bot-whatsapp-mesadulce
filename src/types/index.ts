@@ -83,7 +83,7 @@ export interface DatosPostulacionMayorista {
   nombre_comercio: string;
   ubicacion: string;
   instagram_web: string;
-  tipo_negocio: "Cafetería de especialidad" | "Almacén gourmet / Kiosco de alta gama" | "Otro";
+  tipo_negocio: "Cafetería de especialidad" | "Almacén / Panadería" | "Otro";
   tipo_negocio_otro?: string;
   almacenamiento: "Sí, freezer exclusivo" | "Sí, espacio compartido" | "No";
   volumen_semanal: "50 a 100 unidades" | "100 a 250 unidades" | "Más de 250 unidades";

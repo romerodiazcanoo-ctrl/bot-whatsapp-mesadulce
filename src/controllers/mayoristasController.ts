@@ -10,7 +10,7 @@ const postulacionSchema = z
     instagram_web: z.string().trim().min(1),
     tipo_negocio: z.enum([
       "Cafetería de especialidad",
-      "Almacén gourmet / Kiosco de alta gama",
+      "Almacén / Panadería",
       "Otro",
     ]),
     tipo_negocio_otro: z.string().trim().optional(),
