@@ -28,18 +28,23 @@ src/
 │   ├── index.ts              # Variables de entorno tipadas
 │   └── systemPrompt.ts       # Prompt del agente de IA
 ├── controllers/
-│   └── webhookController.ts  # Lógica de recepción y orquestación
+│   ├── webhookController.ts     # Lógica de recepción y orquestación
+│   └── mayoristasController.ts  # Postulaciones del formulario de mayoristas
 ├── routes/
-│   └── webhook.ts            # GET/POST /webhook
+│   ├── webhook.ts            # GET/POST /webhook
+│   └── mayoristas.ts         # POST /api/mayoristas
 ├── services/
 │   ├── llmService.ts         # Integración Anthropic/OpenAI con function calling
 │   ├── sessionStore.ts       # Estado de conversación (memory/Redis)
 │   ├── whatsappService.ts    # Envío de mensajes via WhatsApp Cloud API
-│   └── outboundWebhook.ts    # POST al webhook externo con el pedido
+│   └── outboundWebhook.ts    # POST al webhook externo (pedidos y postulaciones)
 ├── types/
 │   └── index.ts              # Tipos TypeScript
 └── utils/
     └── logger.ts             # Logger simple sin dependencias extra
+
+public/
+└── mayoristas.html            # Formulario web de postulación mayorista
 ```
 
 ## Setup rápido
@@ -130,6 +135,32 @@ Cuando el agente completa un pedido, dispara un POST a `OUTBOUND_WEBHOOK_URL` co
       }
     ],
     "aclaraciones": ""
+  }
+}
+```
+
+---
+
+## Formulario de postulación mayorista
+
+Página estática servida en `/mayoristas.html` (y todo `public/` vía `express.static`).
+Al enviarse, hace `POST /api/mayoristas`, que valida los datos y dispara un POST a
+`OUTBOUND_WEBHOOK_URL` con este JSON:
+
+```json
+{
+  "evento": "nueva_postulacion_mayorista",
+  "timestamp": "2024-10-15T14:30:00.000Z",
+  "fuente": "web",
+  "postulacion": {
+    "nombre_comercio": "Café Rincón",
+    "ubicacion": "Palermo, CABA",
+    "instagram_web": "@caferincon",
+    "tipo_negocio": "Cafetería de especialidad",
+    "almacenamiento": "Sí, freezer exclusivo",
+    "volumen_semanal": "100 a 250 unidades",
+    "whatsapp_contacto": "+5491112345678",
+    "email": "contacto@caferincon.com"
   }
 }
 ```

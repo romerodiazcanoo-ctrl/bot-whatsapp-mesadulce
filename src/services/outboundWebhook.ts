@@ -1,13 +1,20 @@
 import axios, { AxiosError } from "axios";
-import { DatosPedido } from "../types/index.js";
+import { DatosPedido, DatosPostulacionMayorista } from "../types/index.js";
 import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 
-export interface WebhookPayload {
+export interface WebhookPayloadPedido {
   evento: "nuevo_pedido";
   timestamp: string;
   fuente: "whatsapp";
   pedido: DatosPedido;
+}
+
+export interface WebhookPayloadPostulacionMayorista {
+  evento: "nueva_postulacion_mayorista";
+  timestamp: string;
+  fuente: "web";
+  postulacion: DatosPostulacionMayorista;
 }
 
 /**
@@ -15,13 +22,37 @@ export interface WebhookPayload {
  * Incluye reintentos exponenciales (3 intentos).
  */
 export async function dispararWebhookPedido(datos: DatosPedido): Promise<void> {
-  const payload: WebhookPayload = {
+  const payload: WebhookPayloadPedido = {
     evento: "nuevo_pedido",
     timestamp: new Date().toISOString(),
     fuente: "whatsapp",
     pedido: datos,
   };
 
+  await dispararWebhook(payload, { cliente: datos.nombre_cliente });
+}
+
+/**
+ * Envía una postulación de mayorista al webhook externo (Make, Zapier, n8n, etc.).
+ * Incluye reintentos exponenciales (3 intentos).
+ */
+export async function dispararWebhookMayorista(
+  datos: DatosPostulacionMayorista,
+): Promise<void> {
+  const payload: WebhookPayloadPostulacionMayorista = {
+    evento: "nueva_postulacion_mayorista",
+    timestamp: new Date().toISOString(),
+    fuente: "web",
+    postulacion: datos,
+  };
+
+  await dispararWebhook(payload, { comercio: datos.nombre_comercio });
+}
+
+async function dispararWebhook(
+  payload: WebhookPayloadPedido | WebhookPayloadPostulacionMayorista,
+  logContext: Record<string, string>,
+): Promise<void> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -41,7 +72,8 @@ export async function dispararWebhookPedido(datos: DatosPedido): Promise<void> {
       logger.info("Outbound webhook dispatched", {
         attempt,
         status: response.status,
-        cliente: datos.nombre_cliente,
+        evento: payload.evento,
+        ...logContext,
       });
       return;
     } catch (err) {
@@ -59,10 +91,11 @@ export async function dispararWebhookPedido(datos: DatosPedido): Promise<void> {
   }
 
   logger.error("Outbound webhook failed after all retries", {
-    cliente: datos.nombre_cliente,
+    evento: payload.evento,
+    ...logContext,
     error: lastError,
   });
-  // No lanzamos el error para no interrumpir la conversación con el cliente
+  throw lastError;
 }
 
 function sleep(ms: number): Promise<void> {
