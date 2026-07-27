@@ -1,0 +1,162 @@
+// Prisma schema — Control de Stock Mesa Dulce Repostería
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+  LECTOR
+}
+
+enum Categoria {
+  COOKIE_CLASICA
+  COOKIE_RELLENA
+  BROWNIE
+}
+
+enum Etapa {
+  CRUDO
+  HORNEADO_CONGELADO
+  BROWNIE_PORCIONES
+}
+
+enum TipoMovimiento {
+  AJUSTE_MANUAL
+  PRODUCCION
+  HORNEADO_INGRESO
+  HORNEADO_EGRESO
+}
+
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  name  String?
+  image String?
+
+  role         Role    @default(LECTOR)
+  isAuthorized Boolean @default(false)
+
+  // Dispositivo único autorizado
+  deviceId      String?
+  deviceLabel   String?
+  deviceBoundAt DateTime?
+
+  // Solicitud pendiente de reautorización desde otro dispositivo
+  pendingDeviceId          String?
+  pendingDeviceLabel       String?
+  pendingDeviceRequestedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  produccionEntries ProduccionEntry[]
+  stockMovimientos  StockMovimiento[]
+  planesCreados     PlanProduccion[]
+
+  @@map("users")
+}
+
+model ProductVariety {
+  id                 String    @id @default(cuid())
+  nombre             String    @unique
+  categoria          Categoria
+  pesoUnitarioGramos Float?
+  activa             Boolean   @default(true)
+  orden              Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stocks            Stock[]
+  movimientos       StockMovimiento[]
+  produccionEntries ProduccionEntry[]
+  planItems         PlanProduccionItem[]
+
+  @@map("product_varieties")
+}
+
+model Stock {
+  id        String @id @default(cuid())
+  varietyId String
+  variety   ProductVariety @relation(fields: [varietyId], references: [id], onDelete: Cascade)
+  etapa     Etapa
+  cantidad  Float  @default(0)
+
+  actualizadoEn DateTime @updatedAt
+
+  @@unique([varietyId, etapa])
+  @@map("stocks")
+}
+
+model StockMovimiento {
+  id        String @id @default(cuid())
+  varietyId String
+  variety   ProductVariety @relation(fields: [varietyId], references: [id], onDelete: Cascade)
+  etapa     Etapa
+  tipo      TipoMovimiento
+
+  cantidadDelta      Float
+  cantidadResultante Float
+  nota               String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@map("stock_movimientos")
+}
+
+model ProduccionEntry {
+  id        String @id @default(cuid())
+  varietyId String
+  variety   ProductVariety @relation(fields: [varietyId], references: [id], onDelete: Cascade)
+
+  pesoMasaGramos      Float?
+  unidadesResultantes Float
+  nota                String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  fecha     DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@map("produccion_entries")
+}
+
+model PlanProduccion {
+  id          String   @id @default(cuid())
+  nombre      String
+  fechaInicio DateTime
+  fechaFin    DateTime
+  activo      Boolean  @default(true)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  items PlanProduccionItem[]
+
+  @@map("planes_produccion")
+}
+
+model PlanProduccionItem {
+  id                String @id @default(cuid())
+  planId            String
+  plan              PlanProduccion @relation(fields: [planId], references: [id], onDelete: Cascade)
+  varietyId         String
+  variety           ProductVariety @relation(fields: [varietyId], references: [id], onDelete: Cascade)
+  unidadesObjetivo Float
+
+  @@unique([planId, varietyId])
+  @@map("plan_produccion_items")
+}
