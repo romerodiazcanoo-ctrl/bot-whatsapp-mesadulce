@@ -7,8 +7,8 @@ contra el plan de producción.
 ## Stack
 
 - Next.js 16 (App Router, Server Actions) + TypeScript + Tailwind CSS
-- Prisma 7 con SQLite (adapter `better-sqlite3`, modo WAL) — fácil de migrar a Postgres/MySQL
-  cambiando el `provider` en `prisma/schema.prisma`
+- Prisma 7 con Postgres (adapter `pg`) — funciona con cualquier Postgres (Vercel Postgres/Neon,
+  Supabase, RDS, uno local, etc.)
 - Auth.js (NextAuth v5) con Google como único proveedor de login
 - Recharts para los gráficos de producción
 
@@ -39,18 +39,13 @@ Completá `.env`:
 
 | Variable | Descripción |
 |---|---|
-| `DATABASE_URL` | Por defecto `file:./dev.db` (SQLite local) |
+| `DATABASE_URL` | Connection string de Postgres |
 | `AUTH_SECRET` | Generar con `openssl rand -base64 32` |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Credenciales OAuth de Google |
 | `AUTH_TRUST_HOST` | `true` si se despliega detrás de un proxy/dominio propio |
 
-### Credenciales de Google OAuth
-
-1. [Google Cloud Console](https://console.cloud.google.com/) → crear proyecto → **APIs & Services
-   → Credentials → Create OAuth client ID** (tipo "Web application").
-2. URI de redirección autorizada: `https://tu-dominio.com/api/auth/callback/google` (y
-   `http://localhost:3000/api/auth/callback/google` para desarrollo).
-3. Copiar Client ID / Client Secret a `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
+Las credenciales de Google OAuth se explican en la sección **Desplegar en Vercel** más abajo
+(el mismo proyecto de Google sirve para desarrollo local y producción).
 
 ### Base de datos
 
@@ -75,6 +70,41 @@ npm run dev
 npm run build
 npm start
 ```
+
+## Desplegar en Vercel
+
+1. **Importar el repo**: en [vercel.com](https://vercel.com) → **Add New → Project** → elegir este
+   repositorio de GitHub → como *Root Directory* seleccionar `stock-app` (no la raíz del repo,
+   porque el bot de WhatsApp vive en un directorio separado).
+2. **Base de datos**: en la pestaña **Storage** del proyecto → **Create Database → Postgres**
+   (usa Neon por debajo). Al conectarla, Vercel agrega `DATABASE_URL` automáticamente a las
+   variables de entorno del proyecto.
+3. **Variables de entorno** (Project → Settings → Environment Variables), además de la que Vercel
+   ya agregó:
+   - `AUTH_SECRET`: generar con `openssl rand -base64 32`
+   - `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`: ver más abajo
+   - `AUTH_TRUST_HOST` = `true`
+4. **Deploy**: el comando de build ya incluye `prisma migrate deploy`, así que las tablas se crean
+   solas en cada deploy. Después del primer deploy, corré el seed una vez apuntando a esa base
+   (`DATABASE_URL` de Vercel en tu `.env` local) con `npx prisma db seed`, para tener las
+   variedades y el usuario administrador inicial.
+5. Con la URL real que te da Vercel, volvé a Google Cloud Console y agregá
+   `https://tu-proyecto.vercel.app/api/auth/callback/google` como URI de redirección autorizada
+   (podés tener varias URIs cargadas a la vez, dev y producción conviven sin problema).
+
+### Credenciales de Google OAuth
+
+1. [Google Cloud Console](https://console.cloud.google.com/) con la cuenta de Gmail del negocio.
+2. Crear un proyecto nuevo (o usar uno existente) → **APIs & Services → OAuth consent screen**:
+   tipo "External", completar nombre de la app y tu email de contacto. No hace falta verificación
+   de Google para uso interno con pocos usuarios.
+3. **APIs & Services → Credentials → Create Credentials → OAuth client ID** → tipo
+   "Web application".
+4. En **Authorized redirect URIs** agregar:
+   - `http://localhost:3000/api/auth/callback/google` (desarrollo)
+   - `https://tu-proyecto.vercel.app/api/auth/callback/google` (producción, con la URL real)
+5. Copiar el **Client ID** y **Client Secret** generados a `AUTH_GOOGLE_ID` y
+   `AUTH_GOOGLE_SECRET`.
 
 ## Notas de diseño
 
