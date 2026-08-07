@@ -1716,8 +1716,87 @@ function CatalogoForm({
 }
 function CatalogoItem({
   producto,
-  onDelete
+  onDelete,
+  onUpdate,
+  categoriasExistentes
 }) {
+  const [editando, setEditando] = useState(false);
+  const [categoria, setCategoria] = useState(producto.categoria);
+  const [nombre, setNombre] = useState(producto.nombre);
+  const [precio, setPrecio] = useState(String(producto.precio));
+  const [etiqueta, setEtiqueta] = useState(producto.etiqueta || "");
+  const [detalle, setDetalle] = useState(producto.detalle || "");
+  const [error, setError] = useState("");
+  function iniciarEdicion() {
+    setCategoria(producto.categoria);
+    setNombre(producto.nombre);
+    setPrecio(String(producto.precio));
+    setEtiqueta(producto.etiqueta || "");
+    setDetalle(producto.detalle || "");
+    setError("");
+    setEditando(true);
+  }
+  function guardar() {
+    if (!categoria.trim() || !nombre.trim() || !precio) {
+      setError("Completá al menos categoría, nombre y precio.");
+      return;
+    }
+    onUpdate(producto.id, {
+      categoria: categoria.trim(),
+      nombre: nombre.trim(),
+      precio: Number(precio),
+      etiqueta: etiqueta.trim(),
+      detalle: detalle.trim()
+    });
+    setEditando(false);
+  }
+  if (editando) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "pop-in bg-white rounded-2xl shadow-sm border border-rose-200 p-4 space-y-2"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-2 gap-2"
+    }, /*#__PURE__*/React.createElement("input", {
+      list: "categorias-datalist",
+      value: categoria,
+      onChange: e => setCategoria(e.target.value),
+      placeholder: "Categoría",
+      className: "rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      min: "0",
+      step: "0.01",
+      value: precio,
+      onChange: e => setPrecio(e.target.value),
+      placeholder: "Precio",
+      className: "rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+    })), /*#__PURE__*/React.createElement("input", {
+      value: nombre,
+      onChange: e => setNombre(e.target.value),
+      placeholder: "Nombre",
+      className: "w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+    }), /*#__PURE__*/React.createElement("input", {
+      value: etiqueta,
+      onChange: e => setEtiqueta(e.target.value),
+      placeholder: "Etiqueta (opcional)",
+      className: "w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+    }), /*#__PURE__*/React.createElement("textarea", {
+      value: detalle,
+      onChange: e => setDetalle(e.target.value),
+      placeholder: "Qué incluye / variedades",
+      rows: 2,
+      className: "w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-300 resize-none"
+    }), error && /*#__PURE__*/React.createElement("p", {
+      className: "text-xs text-red-500 font-medium"
+    }, error), /*#__PURE__*/React.createElement("div", {
+      className: "flex gap-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: guardar,
+      className: "flex-1 bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold py-1.5 rounded-lg transition"
+    }, "Guardar"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setEditando(false),
+      className: "flex-1 bg-slate-100 hover:bg-slate-200 text-slate-500 text-xs font-semibold py-1.5 rounded-lg transition"
+    }, "Cancelar")));
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "pop-in bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex items-start justify-between gap-3"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -1730,16 +1809,23 @@ function CatalogoItem({
     className: "text-sm font-semibold text-rose-500"
   }, formatearPrecio(producto.precio)), producto.detalle && /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-slate-400 mt-1"
-  }, producto.detalle)), /*#__PURE__*/React.createElement("button", {
+  }, producto.detalle)), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 shrink-0"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: iniciarEdicion,
+    title: "Editar producto",
+    className: "text-slate-300 hover:text-rose-500 transition text-sm"
+  }, "✏️"), /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(producto.id),
     title: "Eliminar producto",
     className: "text-slate-300 hover:text-red-500 transition text-sm"
-  }, "✕"));
+  }, "✕")));
 }
 function CatalogoSection({
   catalogo,
   onAdd,
-  onDelete
+  onDelete,
+  onUpdate
 }) {
   const [busqueda, setBusqueda] = useState("");
   const categorias = useMemo(() => Array.from(new Set(catalogo.map(p => p.categoria))), [catalogo]);
@@ -1782,7 +1868,9 @@ function CatalogoSection({
   }, productos.map(p => /*#__PURE__*/React.createElement(CatalogoItem, {
     key: p.id,
     producto: p,
-    onDelete: onDelete
+    onDelete: onDelete,
+    onUpdate: onUpdate,
+    categoriasExistentes: categorias
   })))))));
 }
 
@@ -2160,6 +2248,12 @@ function App() {
   function deleteProducto(id) {
     if (window.confirm("¿Eliminar este producto del catálogo?")) setCatalogo(prev => prev.filter(p => p.id !== id));
   }
+  function updateProducto(id, cambios) {
+    setCatalogo(prev => prev.map(p => p.id === id ? {
+      ...p,
+      ...cambios
+    } : p));
+  }
   function addRetiro(retiro) {
     setRetiros(prev => [retiro, ...prev]);
   }
@@ -2264,7 +2358,8 @@ function App() {
   }), tab === "catalogo" && /*#__PURE__*/React.createElement(CatalogoSection, {
     catalogo: catalogo,
     onAdd: addProducto,
-    onDelete: deleteProducto
+    onDelete: deleteProducto,
+    onUpdate: updateProducto
   }), tab === "empleados" && /*#__PURE__*/React.createElement(EmpleadosSection, {
     empleados: empleados,
     retiros: retiros,
