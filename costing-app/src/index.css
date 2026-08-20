@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#faf6ee] text-bordo-800 font-sans antialiased;
+  }
+  h1, h2, h3, .font-display {
+    font-family: theme('fontFamily.display');
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-bordo-100 shadow-sm p-5;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-medium text-sm transition-colors;
+  }
+  .btn-primary {
+    @apply btn bg-bordo-700 text-white hover:bg-bordo-800;
+  }
+  .btn-secondary {
+    @apply btn bg-celeste-100 text-bordo-700 hover:bg-celeste-300;
+  }
+  .btn-ghost {
+    @apply btn text-bordo-700 hover:bg-bordo-50;
+  }
+  .input {
+    @apply w-full rounded-lg border border-bordo-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bordo-400 bg-white;
+  }
+  .label {
+    @apply block text-xs font-medium text-bordo-400 mb-1;
+  }
+  .table-clean {
+    @apply w-full text-sm border-collapse;
+  }
+  .table-clean th {
+    @apply text-left text-xs uppercase tracking-wide text-bordo-400 font-medium py-2 px-3 border-b border-bordo-100;
+  }
+  .table-clean td {
+    @apply py-2 px-3 border-b border-bordo-50;
+  }
+  .table-clean tbody tr:hover {
+    @apply bg-manteca-100/60;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .badge-verde {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+  .badge-amarillo {
+    @apply bg-amber-100 text-amber-700;
+  }
+  .badge-rojo {
+    @apply bg-bordo-100 text-bordo-700;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
