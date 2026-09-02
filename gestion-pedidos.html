@@ -1887,6 +1887,7 @@ function RetiroForm({
   const [error, setError] = useState("");
   const [totalManualActivo, setTotalManualActivo] = useState(false);
   const [totalManual, setTotalManual] = useState("");
+  const [fecha, setFecha] = useState(() => toLocalInputValue(new Date()));
   useEffect(() => {
     if (!empleados.includes(empleado)) setEmpleado(empleados[0] || "");
   }, [empleados]);
@@ -1942,13 +1943,14 @@ function RetiroForm({
       total,
       totalAjustado: totalManualActivo && totalManual !== "",
       notas: notas.trim(),
-      creadoEn: new Date().toISOString()
+      creadoEn: fecha ? new Date(fecha).toISOString() : new Date().toISOString()
     });
     setItems([]);
     setProductoSeleccionado("");
     setTotalManualActivo(false);
     setTotalManual("");
     setNotas("");
+    setFecha(toLocalInputValue(new Date()));
     setError("");
   }
   return /*#__PURE__*/React.createElement("form", {
@@ -2044,6 +2046,15 @@ function RetiroForm({
   })), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between px-1 pt-1 text-sm font-bold text-rose-600"
   }, /*#__PURE__*/React.createElement("span", null, totalManualActivo ? "Total (ajustado)" : "Total"), /*#__PURE__*/React.createElement("span", null, formatearPrecio(total))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs font-semibold text-slate-500"
+  }, "Fecha del retiro"), /*#__PURE__*/React.createElement("input", {
+    type: "datetime-local",
+    value: fecha,
+    onChange: e => setFecha(e.target.value),
+    className: "mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+  }), /*#__PURE__*/React.createElement("p", {
+    className: "text-[11px] text-slate-400 mt-1"
+  }, "Por defecto es ahora, pero se puede cambiar para cargar un retiro de otro día.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "text-xs font-semibold text-slate-500"
   }, "Notas (opcional)"), /*#__PURE__*/React.createElement("input", {
     value: notas,
@@ -2144,10 +2155,21 @@ function ResumenEmpleados({
 function RetirosTable({
   retiros,
   empleados,
-  onDelete
+  onDelete,
+  onUpdate
 }) {
   const [filtroEmpleado, setFiltroEmpleado] = useState("Todos");
+  const [editandoFechaId, setEditandoFechaId] = useState(null);
+  const [fechaEditada, setFechaEditada] = useState("");
   const filtrados = useMemo(() => retiros.filter(r => filtroEmpleado === "Todos" || r.empleado === filtroEmpleado).sort((a, b) => new Date(b.creadoEn) - new Date(a.creadoEn)), [retiros, filtroEmpleado]);
+  function iniciarEdicionFecha(r) {
+    setEditandoFechaId(r.id);
+    setFechaEditada(toLocalInputValue(new Date(r.creadoEn)));
+  }
+  function guardarFecha(id) {
+    if (fechaEditada) onUpdate(id, { creadoEn: new Date(fechaEditada).toISOString() });
+    setEditandoFechaId(null);
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-3"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2195,7 +2217,26 @@ function RetirosTable({
     className: "ml-1 text-[10px] text-slate-400"
   }, "✏️")), /*#__PURE__*/React.createElement("td", {
     className: "py-2.5 pr-3 text-slate-400 whitespace-nowrap"
-  }, formatCreado(r.creadoEn)), /*#__PURE__*/React.createElement("td", {
+  }, editandoFechaId === r.id ? /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "datetime-local",
+    value: fechaEditada,
+    onChange: e => setFechaEditada(e.target.value),
+    className: "rounded-lg border border-rose-200 px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => guardarFecha(r.id),
+    className: "text-emerald-600 hover:underline text-xs font-semibold"
+  }, "Guardar"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEditandoFechaId(null),
+    className: "text-slate-400 hover:underline text-xs"
+  }, "Cancelar")) : /*#__PURE__*/React.createElement("span", {
+    className: "inline-flex items-center gap-1"
+  }, formatCreado(r.creadoEn), /*#__PURE__*/React.createElement("button", {
+    onClick: () => iniciarEdicionFecha(r),
+    title: "Editar fecha del retiro",
+    className: "text-slate-300 hover:text-rose-500"
+  }, "✏️"))), /*#__PURE__*/React.createElement("td", {
     className: "py-2.5 pr-3"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(r.id),
@@ -2211,6 +2252,7 @@ function EmpleadosSection({
   catalogo,
   onAddRetiro,
   onDeleteRetiro,
+  onUpdateRetiro,
   onAddEmpleado,
   onDeleteEmpleado
 }) {
@@ -2242,7 +2284,8 @@ function EmpleadosSection({
   }), /*#__PURE__*/React.createElement(RetirosTable, {
     retiros: retiros,
     empleados: empleados,
-    onDelete: onDeleteRetiro
+    onDelete: onDeleteRetiro,
+    onUpdate: onUpdateRetiro
   })));
 }
 
@@ -2305,6 +2348,12 @@ function App() {
   }
   function deleteRetiro(id) {
     if (window.confirm("¿Eliminar este retiro?")) setRetiros(prev => prev.filter(r => r.id !== id));
+  }
+  function updateRetiro(id, cambios) {
+    setRetiros(prev => prev.map(r => r.id === id ? {
+      ...r,
+      ...cambios
+    } : r));
   }
   function addEmpleado(nombre) {
     setEmpleados(prev => [...prev, nombre]);
@@ -2412,6 +2461,7 @@ function App() {
     catalogo: catalogo,
     onAddRetiro: addRetiro,
     onDeleteRetiro: deleteRetiro,
+    onUpdateRetiro: updateRetiro,
     onAddEmpleado: addEmpleado,
     onDeleteEmpleado: deleteEmpleado
   }), /*#__PURE__*/React.createElement("footer", {
