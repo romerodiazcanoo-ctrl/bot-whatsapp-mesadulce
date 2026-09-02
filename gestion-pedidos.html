@@ -2246,6 +2246,57 @@ function RetirosTable({
     className: "text-center text-slate-400 py-8"
   }, "Todavía no hay retiros registrados."))))));
 }
+function mesKeyAEtiqueta(mesKey) {
+  const [y, m] = mesKey.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("es-AR", {
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function ResumenPorMes({
+  retiros,
+  onVerMes
+}) {
+  const porMes = useMemo(() => {
+    const map = {};
+    retiros.forEach(r => {
+      const key = (r.creadoEn || "").slice(0, 7);
+      if (!key) return;
+      if (!map[key]) map[key] = {
+        total: 0,
+        cantidad: 0
+      };
+      map[key].total += r.total;
+      map[key].cantidad += 1;
+    });
+    return Object.entries(map).map(([mes, v]) => ({
+      mes,
+      ...v
+    })).sort((a, b) => b.mes.localeCompare(a.mes));
+  }, [retiros]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-3"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-bold text-slate-600"
+  }, "📊 Total retirado por mes"), porMes.length === 0 && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-slate-400 text-center py-4"
+  }, "Sin retiros registrados todavía."), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1.5"
+  }, porMes.map(m => /*#__PURE__*/React.createElement("button", {
+    key: m.mes,
+    onClick: () => onVerMes(m.mes),
+    title: "Ver el detalle de este mes",
+    className: "w-full flex items-center justify-between gap-2 bg-slate-50 hover:bg-rose-50 rounded-xl px-3 py-2 text-sm text-left transition"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "font-medium text-slate-700 capitalize"
+  }, mesKeyAEtiqueta(m.mes)), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-slate-400"
+  }, m.cantidad, " retiro", m.cantidad === 1 ? "" : "s"), /*#__PURE__*/React.createElement("span", {
+    className: "font-bold text-rose-600"
+  }, formatearPrecio(m.total))))));
+}
+
 function EmpleadosSection({
   empleados,
   retiros,
@@ -2256,7 +2307,7 @@ function EmpleadosSection({
   onAddEmpleado,
   onDeleteEmpleado
 }) {
-  const [modoHistorico, setModoHistorico] = useState(false);
+  const [modo, setModo] = useState("mes"); // mes | resumenMensual | historico
   const [mesVista, setMesVista] = useState(() => {
     const d = new Date();
     return {
@@ -2279,13 +2330,31 @@ function EmpleadosSection({
       year: d.getFullYear(),
       month: d.getMonth()
     });
-    setModoHistorico(false);
+    setModo("mes");
   }
-  const mesFiltro = modoHistorico ? null : `${mesVista.year}-${pad(mesVista.month + 1)}`;
+  function irAMesDesdeResumen(mesKey) {
+    const [y, m] = mesKey.split("-").map(Number);
+    setMesVista({
+      year: y,
+      month: m - 1
+    });
+    setModo("mes");
+  }
+  const mesFiltro = modo === "mes" ? `${mesVista.year}-${pad(mesVista.month + 1)}` : null;
   const etiquetaMes = new Date(mesVista.year, mesVista.month, 1).toLocaleDateString("es-AR", {
     month: "long",
     year: "numeric"
   });
+  const MODOS = [{
+    id: "mes",
+    label: "Por mes"
+  }, {
+    id: "resumenMensual",
+    label: "📊 Totales por mes"
+  }, {
+    id: "historico",
+    label: "Histórico completo"
+  }];
   return /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-1 lg:grid-cols-3 gap-5"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2302,27 +2371,31 @@ function EmpleadosSection({
     className: "lg:col-span-2 space-y-5"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between gap-3 flex-wrap bg-white rounded-2xl shadow-sm border border-slate-100 px-4 py-2.5"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, modo === "mes" ? /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => cambiarMesVista(-1),
-    disabled: modoHistorico,
-    className: "px-2 py-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 font-bold disabled:opacity-30"
+    className: "px-2 py-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 font-bold"
   }, "←"), /*#__PURE__*/React.createElement("span", {
     className: "font-bold text-slate-700 capitalize text-sm min-w-[120px] text-center"
-  }, modoHistorico ? "Todo el historial" : etiquetaMes), /*#__PURE__*/React.createElement("button", {
+  }, etiquetaMes), /*#__PURE__*/React.createElement("button", {
     onClick: () => cambiarMesVista(1),
-    disabled: modoHistorico,
-    className: "px-2 py-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 font-bold disabled:opacity-30"
-  }, "→")), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-3"
-  }, !modoHistorico && /*#__PURE__*/React.createElement("button", {
+    className: "px-2 py-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 font-bold"
+  }, "→"), /*#__PURE__*/React.createElement("button", {
     onClick: irAMesActual,
-    className: "text-xs font-semibold text-rose-500 hover:underline"
-  }, "Mes actual"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setModoHistorico(!modoHistorico),
-    className: `text-xs font-semibold px-3 py-1.5 rounded-lg transition ${modoHistorico ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`
-  }, modoHistorico ? "Viendo histórico completo" : "Ver histórico completo"))), /*#__PURE__*/React.createElement(ResumenEmpleados, {
+    className: "text-xs font-semibold text-rose-500 hover:underline ml-1"
+  }, "Mes actual")) : /*#__PURE__*/React.createElement("span", {
+    className: "font-bold text-slate-700 text-sm"
+  }, modo === "historico" ? "Todo el historial" : "Totales de cada mes"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 bg-slate-100 rounded-xl p-1"
+  }, MODOS.map(m => /*#__PURE__*/React.createElement("button", {
+    key: m.id,
+    onClick: () => setModo(m.id),
+    className: `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${modo === m.id ? "bg-white shadow-sm text-rose-500" : "text-slate-400"}`
+  }, m.label)))), modo === "resumenMensual" ? /*#__PURE__*/React.createElement(ResumenPorMes, {
+    retiros: retiros,
+    onVerMes: irAMesDesdeResumen
+  }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ResumenEmpleados, {
     retiros: retiros,
     mesFiltro: mesFiltro
   }), /*#__PURE__*/React.createElement(RetirosTable, {
@@ -2331,7 +2404,7 @@ function EmpleadosSection({
     onDelete: onDeleteRetiro,
     onUpdate: onUpdateRetiro,
     mesFiltro: mesFiltro
-  })));
+  }))));
 }
 
 /* ---------- App principal ---------- */
